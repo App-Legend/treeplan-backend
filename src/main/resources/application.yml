@@ -1,0 +1,47 @@
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: seokkeobom-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/seokkeobom}
+    username: ${DB_USERNAME:seokkeobom}
+    password: ${DB_PASSWORD:seokkeobom}
+  jpa:
+    hibernate:
+      # 수업 MVP 기준: 엔티티로 스키마를 자동 생성/보정한다. 운영 전에는 Flyway 마이그레이션으로 바꿀 것.
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+app:
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:5173}
+  jwt:
+    # 32바이트 이상. 반드시 환경변수로 바꿀 것.
+    secret: ${JWT_SECRET:dev-only-secret-change-me-dev-only-secret-change-me}
+    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:30}
+    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:14}
+  ai:
+    # 키가 비어 있으면 예시(mock) 모드로 동작한다. 시연 대비용.
+    gemini-api-key: ${GEMINI_API_KEY:}
+    gemini-model: ${GEMINI_MODEL:gemini-2.5-flash}
+    gemini-base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:40}
+  session:
+    inactive-days: 30
+    expiry-cron: "0 0 4 * * *"
+  export:
+    pdf-font-path: ${PDF_FONT_PATH:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
