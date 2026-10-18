@@ -1,5 +1,6 @@
 package com.applegend.seokkeobom.session;
 
+import com.applegend.seokkeobom.auth.Accounts;
 import com.applegend.seokkeobom.auth.User;
 import com.applegend.seokkeobom.auth.UserRepository;
 import com.applegend.seokkeobom.common.ApiException;
@@ -26,15 +27,18 @@ public class SessionService {
     private final SessionMemberRepository members;
     private final UserRepository users;
     private final SessionEventPublisher events;
+    private final Accounts accounts;
     private final Duration inactiveLimit;
     private final SecureRandom random = new SecureRandom();
 
     public SessionService(IdeaSessionRepository sessions, SessionMemberRepository members, UserRepository users,
-                          SessionEventPublisher events, @Value("${app.session.inactive-days}") long inactiveDays) {
+                          SessionEventPublisher events, Accounts accounts,
+                          @Value("${app.session.inactive-days}") long inactiveDays) {
         this.sessions = sessions;
         this.members = members;
         this.users = users;
         this.events = events;
+        this.accounts = accounts;
         this.inactiveLimit = Duration.ofDays(inactiveDays);
     }
 
@@ -50,7 +54,7 @@ public class SessionService {
             Optional<IdeaSession> existing = sessions.findByOwnerIdAndIdempotencyKey(userId, key);
             if (existing.isPresent()) {
                 IdeaSession s = existing.get();
-                return new CreateSessionResponse(s.getId(), s.getName(), s.getTeamCode());
+                return new CreateSessionResponse(s.getId(), s.getName(), teamCodeFor(s, userId));
             }
         }
         String name = rawName == null ? "" : rawName.strip();
@@ -60,11 +64,12 @@ public class SessionService {
         }
         IdeaSession session = sessions.save(new IdeaSession(name, newTeamCode(), userId, key));
         members.save(new SessionMember(session.getId(), userId, MemberRole.OWNER));
-        return new CreateSessionResponse(session.getId(), session.getName(), session.getTeamCode());
+        return new CreateSessionResponse(session.getId(), session.getName(), teamCodeFor(session, userId));
     }
 
     @Transactional(noRollbackFor = ApiException.class)
     public JoinResponse join(Long userId, String rawCode) {
+        accounts.requireRegistered(userId, "팀 코드로 함께 작업하려면 먼저 로그인해 주세요.");
         String code = rawCode.replaceAll("[\\s-]", "").toUpperCase(Locale.ROOT);
         IdeaSession session = sessions.findByTeamCode(code)
                 .orElseThrow(() -> ApiException.notFound("NOT_FOUND", "팀 코드를 찾을 수 없습니다. 코드를 다시 확인해 주세요."));
@@ -97,7 +102,7 @@ public class SessionService {
                 .toList();
         MemberRole myRole = list.stream().filter(m -> m.getUserId().equals(userId))
                 .map(SessionMember::getRole).findFirst().orElse(MemberRole.MEMBER);
-        return new SessionInfo(session.getId(), session.getName(), session.getTeamCode(), session.getStatus(),
+        return new SessionInfo(session.getId(), session.getName(), teamCodeFor(session, userId), session.getStatus(),
                 dtos, myRole, session.getLastActivityAt());
     }
 
@@ -175,6 +180,11 @@ public class SessionService {
 
     public long memberCount(Long sessionId) {
         return members.countBySessionId(sessionId);
+    }
+
+    /** 협업(팀 코드)은 로그인이 필요하므로 게스트에게는 팀 코드를 주지 않는다. 로그인하면 같은 세션의 코드가 보인다. */
+    private String teamCodeFor(IdeaSession session, Long userId) {
+        return accounts.isGuest(userId) ? null : session.getTeamCode();
     }
 
     /** 예약 작업이 아직 돌지 않았어도 30일 무활동이면 즉시 만료 처리 */

@@ -28,6 +28,10 @@ public class User {
 
     private Instant lockedUntil;
 
+    /** 로그인 없이 작업하는 임시 사용자. 히스토리·팀 코드는 쓸 수 없고, 로그인하면 작업이 계정으로 옮겨진다. */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean guest;
+
     protected User() {}
 
     public User(String email, String passwordHash, String name) {
@@ -37,7 +41,14 @@ public class User {
         this.createdAt = Instant.now();
     }
 
+    public static User guest(String email, String passwordHash) {
+        User u = new User(email, passwordHash, "게스트");
+        u.guest = true;
+        return u;
+    }
+
     public Long getId() { return id; }
+    public boolean isGuest() { return guest; }
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
     public String getName() { return name; }

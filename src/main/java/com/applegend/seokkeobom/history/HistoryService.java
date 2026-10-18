@@ -1,5 +1,6 @@
 package com.applegend.seokkeobom.history;
 
+import com.applegend.seokkeobom.auth.Accounts;
 import com.applegend.seokkeobom.category.CatalogService;
 import com.applegend.seokkeobom.common.ApiException;
 import com.applegend.seokkeobom.common.GenerationStatus;
@@ -31,14 +32,16 @@ public class HistoryService {
     private final DrawRepository draws;
     private final SessionService sessions;
     private final CatalogService catalog;
+    private final Accounts accounts;
 
     public HistoryService(ResultRepository results, IdeaRepository ideas, DrawRepository draws,
-                          SessionService sessions, CatalogService catalog) {
+                          SessionService sessions, CatalogService catalog, Accounts accounts) {
         this.results = results;
         this.ideas = ideas;
         this.draws = draws;
         this.sessions = sessions;
         this.catalog = catalog;
+        this.accounts = accounts;
     }
 
     public enum ItemType { RESULT, IDEA }
@@ -50,6 +53,7 @@ public class HistoryService {
     public record HistoryPage(List<HistoryItem> items, String nextCursor) {}
 
     public HistoryPage list(Long userId, String rawQuery, Long categoryId, String cursor) {
+        accounts.requireRegistered(userId, "히스토리는 로그인한 뒤 볼 수 있어요. 로그인하면 지금까지 만든 결과도 함께 저장됩니다.");
         List<Long> sessionIds = sessions.sessionIdsOf(userId);
         if (sessionIds.isEmpty()) return new HistoryPage(List.of(), null);
 

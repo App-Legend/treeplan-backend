@@ -1,10 +1,14 @@
 package com.applegend.seokkeobom.ai;
 
+import com.applegend.seokkeobom.category.Subcategories;
 import com.applegend.seokkeobom.category.TemplateItem;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * GEMINI_API_KEY가 없을 때 쓰는 예시(시연용) 생성기.
@@ -48,6 +52,22 @@ public class MockAiClient implements AiClient {
             body.put(item.key(), sample(ctx.categorySlug(), item.key(), a, b, c, ctx));
         }
         return body;
+    }
+
+    /** 예시 모드: 뿌리별 예시 단어 중 트리에 아직 없는 것을 순서대로 돌려준다. */
+    @Override
+    public List<String> generateWords(WordContext ctx) {
+        Set<String> taken = new HashSet<>(ctx.existing());
+        taken.addAll(ctx.path());
+        List<String> words = new ArrayList<>();
+        for (String w : Subcategories.sampleWords(ctx.categorySlug(), ctx.rootText())) {
+            if (words.size() >= ctx.count()) break;
+            if (!taken.contains(w)) words.add(w);
+        }
+        if (words.isEmpty()) {
+            throw new AiException("예시 모드에서 쓸 단어가 더 없습니다. 다른 하위 카테고리에서 뻗어 보세요.");
+        }
+        return words;
     }
 
     private static String sample(String slug, String key, String a, String b, String c, GenerationContext ctx) {

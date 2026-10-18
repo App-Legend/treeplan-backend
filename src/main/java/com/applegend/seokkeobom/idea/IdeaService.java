@@ -31,7 +31,7 @@ import java.util.List;
 public class IdeaService {
     private static final Logger log = LoggerFactory.getLogger(IdeaService.class);
     /** 서버가 중간에 꺼져 '생성 중'으로 남은 경우, 이 시간이 지나면 다시 시도를 허용한다. */
-    public static final Duration STALE_GENERATION = Duration.ofSeconds(120);
+    public static final Duration STALE_GENERATION = Duration.ofSeconds(300);
 
     private final IdeaRepository ideas;
     private final ResultRepository results;

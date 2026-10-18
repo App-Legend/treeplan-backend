@@ -1,5 +1,6 @@
 package com.applegend.seokkeobom.result;
 
+import com.applegend.seokkeobom.auth.Accounts;
 import com.applegend.seokkeobom.ai.AiClient;
 import com.applegend.seokkeobom.ai.AiException;
 import com.applegend.seokkeobom.ai.GenerationContext;
@@ -210,11 +211,13 @@ public class ResultService {
     }
 
     private ResultResponse toResponse(Result r, Idea idea, Long userId, String notice) {
-        String authorName = users.findById(r.getAuthorId()).map(User::getName).orElse("알 수 없음");
+        User author = users.findById(r.getAuthorId()).orElse(null);
+        String authorName = author == null ? "알 수 없음" : author.getName();
+        boolean saved = author != null && !author.isGuest();
         return new ResultResponse(r.getId(), r.getIdeaId(), r.getSessionId(), r.getTitle(), idea.getSummary(),
                 r.getCategoryId(), r.getCategoryName(), r.getWords(), itemsOf(r), r.getStatus(), r.getFailureReason(),
                 r.isEdited(), r.getCreatedAt(), r.getUpdatedAt(), authorName, sessions.isOwner(r.getSessionId(), userId),
-                notice, ai.mode());
+                notice, ai.mode(), saved, saved ? null : Accounts.LOGIN_PROMPT);
     }
 
     private static Map<String, String> orderBy(List<TemplateItem> items, Map<String, String> body) {

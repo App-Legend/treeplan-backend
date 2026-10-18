@@ -13,6 +13,8 @@ public class SessionEventPublisher {
     public static final String MEMBER_LEFT = "MEMBER_LEFT";
     public static final String RESULT_CREATED = "RESULT_CREATED";
     public static final String SESSION_CLOSED = "SESSION_CLOSED";
+    /** 팀원이 단어 트리에 가지를 뻗음 (협업) */
+    public static final String TREE_EXPANDED = "TREE_EXPANDED";
 
     private final SimpMessagingTemplate messaging;
 

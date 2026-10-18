@@ -21,8 +21,9 @@ public final class AuthDtos {
     public record PasswordResetRequest(
             @NotBlank(message = "이메일을 입력해 주세요.") @Email(message = "이메일 형식이 올바르지 않습니다.") String email) {}
 
-    public record UserInfo(Long id, String email, String name) {
-        static UserInfo of(User u) { return new UserInfo(u.getId(), u.getEmail(), u.getName()); }
+    /** guest가 true면 이메일은 화면에 보여 주지 않는다 */
+    public record UserInfo(Long id, String email, String name, boolean guest) {
+        static UserInfo of(User u) { return new UserInfo(u.getId(), u.isGuest() ? null : u.getEmail(), u.getName(), u.isGuest()); }
     }
 
     public record TokenResponse(String accessToken, String refreshToken, long expiresIn, UserInfo user) {}

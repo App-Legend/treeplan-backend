@@ -44,7 +44,12 @@ public class DrawService {
         Long categoryId = categoryIds.get(0);
         catalog.requireCategory(categoryId);
 
-        List<String> pool = catalog.wordPool(categoryId);
+        // 뽑기 대상은 이 세션의 단어 트리에 뻗어 둔 단어
+        List<String> pool = catalog.wordPool(categoryId, sessionId);
+        if (pool.size() < WORD_COUNT) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TREE_TOO_SMALL",
+                    "트리에 단어가 3개 이상 있어야 뽑을 수 있어요. 하위 카테고리를 눌러 가지를 더 뻗어 주세요.");
+        }
         Set<String> poolSet = new HashSet<>(pool);
         List<String> fixed = clean(req.fixedWords());
         Set<String> excluded = new LinkedHashSet<>(clean(req.excludedWords()));
@@ -54,7 +59,7 @@ public class DrawService {
         }
         for (String f : fixed) {
             if (!poolSet.contains(f)) {
-                throw ApiException.badRequest("FIXED_NOT_IN_CATEGORY", "'" + f + "'은(는) 선택한 카테고리의 단어가 아닙니다.");
+                throw ApiException.badRequest("FIXED_NOT_IN_CATEGORY", "'" + f + "'은(는) 이 세션 트리에 있는 단어가 아닙니다.");
             }
         }
         excluded.removeAll(fixed);

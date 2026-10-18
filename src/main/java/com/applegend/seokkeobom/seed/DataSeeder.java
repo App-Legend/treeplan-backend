@@ -9,13 +9,12 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * MVP 고정 카테고리 3개, 분야별 단어 트리, 절차 템플릿(결과물 양식)을 처음 실행할 때 넣는다.
- * 단어를 늘리거나 고치려면 이 파일을 수정하고 DB의 categories·word_nodes·result_templates를 비운 뒤 다시 실행한다.
+ * MVP 고정 카테고리 3개, 카테고리별 고정 하위 카테고리 3개(단어 트리의 뿌리), 절차 템플릿(결과물 양식)을 넣는다.
+ * 뿌리 아래 단어는 미리 넣지 않고 세션마다 AI가 뻗는다(뿌리당 최대 20개).
+ * 하위 카테고리 이름은 {@link Subcategories}에서 바꾼다. 바뀐 경우 다음 실행 때 공용 노드(뿌리)를 새 구성으로 맞춘다.
  */
 @Component
 public class DataSeeder implements ApplicationRunner {
@@ -37,23 +36,37 @@ public class DataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) throws Exception {
-        if (categories.count() > 0) return;
-        seed("음식 개발", "food", 1, FOOD_ITEMS, FOOD_INSTRUCTION, FOOD_WORDS);
-        seed("프로그램 개발", "program", 2, PROGRAM_ITEMS, PROGRAM_INSTRUCTION, PROGRAM_WORDS);
-        seed("공모전 기획", "contest", 3, CONTEST_ITEMS, CONTEST_INSTRUCTION, CONTEST_WORDS);
-        log.info("기본 카테고리·단어 풀·결과물 양식을 넣었습니다.");
+        if (categories.count() == 0) {
+            seed("음식 개발", "food", 1, FOOD_ITEMS, FOOD_INSTRUCTION);
+            seed("프로그램 개발", "program", 2, PROGRAM_ITEMS, PROGRAM_INSTRUCTION);
+            seed("공모전 기획", "contest", 3, CONTEST_ITEMS, CONTEST_INSTRUCTION);
+            log.info("기본 카테고리·결과물 양식을 넣었습니다.");
+        }
+        for (Category c : categories.findAllByOrderBySortOrderAsc()) {
+            syncRoots(c);
+        }
     }
 
-    private void seed(String name, String slug, int order, List<TemplateItem> items, String instruction,
-                      Map<String, List<String>> groups) throws Exception {
+    private void seed(String name, String slug, int order, List<TemplateItem> items, String instruction) throws Exception {
         ResultTemplate template = templates.save(new ResultTemplate(objectMapper.writeValueAsString(items), instruction));
-        Category category = categories.save(new Category(name, slug, template.getId(), order));
-        for (Map.Entry<String, List<String>> g : groups.entrySet()) {
-            WordNode group = wordNodes.save(new WordNode(category.getId(), null, g.getKey(), WordNode.GROUP_DEPTH));
-            for (String w : g.getValue()) {
-                wordNodes.save(new WordNode(category.getId(), group.getId(), w, WordNode.WORD_DEPTH));
-            }
+        categories.save(new Category(name, slug, template.getId(), order));
+    }
+
+    /**
+     * 공용 노드(뿌리)가 Subcategories와 다르면(이전 버전의 분류 4개·미리 넣은 단어 등) 새 구성으로 바꾼다.
+     * 세션에서 자란 단어는 건드리지 않는다. 뽑힌 단어는 추출(Draw)에 글자로 저장되므로 기존 기록은 그대로 남는다.
+     */
+    private void syncRoots(Category c) {
+        List<String> wanted = Subcategories.rootsOf(c.getSlug());
+        List<String> current = wordNodes.findByCategoryIdAndSessionIdIsNullOrderByIdAsc(c.getId()).stream()
+                .map(n -> n.isRoot() ? n.getText() : "#" + n.getText())
+                .toList();
+        if (current.equals(wanted)) return;
+        int removed = wordNodes.deleteSharedNodes(c.getId());
+        for (String root : wanted) {
+            wordNodes.save(WordNode.root(c.getId(), root));
         }
+        log.info("'{}' 하위 카테고리를 {}(으)로 맞췄습니다. (이전 공용 노드 {}개 정리)", c.getName(), wanted, removed);
     }
 
     private static final TemplateItem REASON = new TemplateItem("reason", "조합 이유",
@@ -93,29 +106,4 @@ public class DataSeeder implements ApplicationRunner {
     static final String CONTEST_INSTRUCTION = """
             대학생 팀이 공모전 기획서 초안으로 바로 옮겨 쓸 수 있게 쓴다. 통계·수상 이력 등 사실을 지어내지 않고,
             필요한 근거는 '확인 필요'로 표시한다.""";
-
-    static final Map<String, List<String>> FOOD_WORDS = ordered(
-            "재료", List.of("유자", "흑임자", "감태", "들기름", "무화과", "고구마", "쑥", "오미자", "버터", "표고버섯", "단호박", "레몬그라스"),
-            "조리법", List.of("훈연", "발효", "수비드", "튀김", "절임", "동결건조", "숙성", "캐러멜라이징", "찜", "그릴"),
-            "감각", List.of("바삭함", "쫀득함", "새콤함", "스모키함", "청량감", "고소함", "매콤함", "부드러움", "톡 쏘는 맛", "따뜻함"),
-            "상황", List.of("산책", "야식", "캠핑", "시험기간", "출근길", "비 오는 날", "혼밥", "생일", "소풍", "새벽"));
-
-    static final Map<String, List<String>> PROGRAM_WORDS = ordered(
-            "사용자", List.of("자취생", "반려인", "고령자", "신입생", "프리랜서", "운동 초보", "여행자", "초등학생 부모", "야간 근무자", "유학생"),
-            "기술", List.of("위치 기반", "음성 인식", "카메라 인식", "푸시 알림", "지도", "캘린더 연동", "챗봇", "게임화", "오프라인 모드", "공유 링크"),
-            "문제", List.of("미루기", "음식 낭비", "고립감", "정보 과잉", "분실", "층간 소음", "수면 부족", "낯선 길", "정리 안 됨", "약속 잊음"),
-            "맥락", List.of("출퇴근", "시험기간", "이사", "장보기", "주말", "동아리", "아르바이트", "병원 방문", "명절", "장마철"));
-
-    static final Map<String, List<String>> CONTEST_WORDS = ordered(
-            "주제", List.of("탄소중립", "지역 소멸", "1인 가구", "디지털 격차", "청년 주거", "전통시장", "반려동물", "고령화", "생활 안전", "동네 상권"),
-            "대상", List.of("어르신", "외국인 주민", "청소년", "대학생", "소상공인", "장애인", "관광객", "다문화 가정", "직장인", "어린이"),
-            "방식", List.of("캠페인", "플랫폼", "굿즈", "축제", "교육 프로그램", "숏폼 영상", "지도 제작", "공공 디자인", "크라우드펀딩", "체험 키트"),
-            "장소", List.of("버스정류장", "폐교", "골목", "도서관", "편의점", "하천", "옥상", "운동장", "시장 골목", "지하철역"));
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, List<String>> ordered(Object... kv) {
-        Map<String, List<String>> map = new LinkedHashMap<>();
-        for (int i = 0; i < kv.length; i += 2) map.put((String) kv[i], (List<String>) kv[i + 1]);
-        return map;
-    }
 }

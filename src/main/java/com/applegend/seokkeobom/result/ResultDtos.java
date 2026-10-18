@@ -15,7 +15,9 @@ public final class ResultDtos {
                                  Long categoryId, String categoryName, List<String> words, List<ResultItem> items,
                                  GenerationStatus status, String failureReason, boolean edited,
                                  Instant createdAt, Instant updatedAt, String authorName, boolean canDelete,
-                                 String notice, String aiMode) {}
+                                 String notice, String aiMode,
+                                 /* false면 게스트가 만든 결과 → 화면은 loginPrompt로 로그인 권유 팝업을 띄운다 */
+                                 boolean saved, String loginPrompt) {}
 
     public record UpdateRequest(Map<String, String> items) {}
     public record RegenerateRequest(String feedback) {}

@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class AuthService {
@@ -31,32 +32,47 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokens;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final GuestMergeService guestMerge;
     private final Duration refreshTtl;
     private final SecureRandom random = new SecureRandom();
 
     public AuthService(UserRepository users, RefreshTokenRepository refreshTokens, PasswordEncoder passwordEncoder,
-                       JwtProvider jwtProvider, @Value("${app.jwt.refresh-ttl-days}") long refreshTtlDays) {
+                       JwtProvider jwtProvider, GuestMergeService guestMerge,
+                       @Value("${app.jwt.refresh-ttl-days}") long refreshTtlDays) {
         this.users = users;
         this.refreshTokens = refreshTokens;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.guestMerge = guestMerge;
         this.refreshTtl = Duration.ofDays(refreshTtlDays);
     }
 
+    /** 로그인 없이 시작할 때 쓰는 임시 계정. 로그인·가입하면 이 계정의 작업이 옮겨진다. */
     @Transactional
-    public TokenResponse signup(SignupRequest req) {
+    public TokenResponse guest() {
+        byte[] bytes = new byte[24];
+        random.nextBytes(bytes);
+        String email = "guest-" + UUID.randomUUID() + "@guest.treeplan.local";
+        User user = users.save(User.guest(email, passwordEncoder.encode(Base64.getEncoder().encodeToString(bytes))));
+        return issueTokens(user);
+    }
+
+    /** guestId: 요청에 게스트 토큰이 있었다면 그 사용자 ID (게스트 작업을 새 계정으로 옮김) */
+    @Transactional
+    public TokenResponse signup(SignupRequest req, Long guestId) {
         String email = normalize(req.email());
         validatePassword(req.password());
         if (users.existsByEmail(email)) {
             throw ApiException.conflict("EMAIL_TAKEN", "이미 가입된 이메일입니다.");
         }
         User user = users.save(new User(email, passwordEncoder.encode(req.password()), req.name().trim()));
+        guestMerge.merge(guestId, user.getId());
         return issueTokens(user);
     }
 
     /** 실패 횟수 기록이 롤백되지 않도록 예외 대신 결과 객체로 분기한다. */
     @Transactional(noRollbackFor = ApiException.class)
-    public TokenResponse login(LoginRequest req) {
+    public TokenResponse login(LoginRequest req, Long guestId) {
         User user = users.findByEmail(normalize(req.email()))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_LOGIN));
         Instant now = Instant.now();
@@ -78,6 +94,7 @@ public class AuthService {
         user.setFailedLoginCount(0);
         user.setLockedUntil(null);
         users.save(user);
+        guestMerge.merge(guestId, user.getId());
         return issueTokens(user);
     }
 
