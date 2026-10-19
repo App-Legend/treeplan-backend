@@ -15,6 +15,8 @@ public class SessionEventPublisher {
     public static final String SESSION_CLOSED = "SESSION_CLOSED";
     /** 팀원이 단어 트리에 가지를 뻗음 (협업) */
     public static final String TREE_EXPANDED = "TREE_EXPANDED";
+    /** 누군가 단어 트리를 초기화함 */
+    public static final String TREE_RESET = "TREE_RESET";
 
     private final SimpMessagingTemplate messaging;
 

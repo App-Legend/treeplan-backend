@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -23,4 +24,10 @@ public interface WordNodeRepository extends JpaRepository<WordNode, Long> {
     @Modifying
     @Query("delete from WordNode n where n.categoryId = :categoryId and n.sessionId is null")
     int deleteSharedNodes(@Param("categoryId") Long categoryId);
+
+    /** 트리 초기화: 이 세션에서 이 분야에 뻗은 단어를 모두 지운다 (뿌리는 공용이라 남음) */
+    @Transactional
+    @Modifying
+    @Query("delete from WordNode n where n.categoryId = :categoryId and n.sessionId = :sessionId")
+    int deleteSessionWords(@Param("categoryId") Long categoryId, @Param("sessionId") Long sessionId);
 }

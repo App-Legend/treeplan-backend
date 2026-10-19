@@ -206,6 +206,13 @@ class CoreFlowTest {
         JsonNode reopened = json(perform(get("/results/" + resultId), user, null, 200));
         assertThat(reopened.get("saved").asBoolean()).isTrue();
         assertThat(json(perform(get("/sessions/" + sessionId), user, null, 200)).get("teamCode").isNull()).isFalse();
+
+        // 트리 초기화: 뻗은 단어가 모두 지워지고 뻗기 횟수도 0
+        JsonNode reset = json(perform(delete("/sessions/" + sessionId + "/categories/" + catId + "/words"), user, null, 200));
+        assertThat(reset.get("deleted").asInt()).isPositive();
+        JsonNode cleared = json(perform(get("/categories/" + catId + "/words").param("sessionId", String.valueOf(sessionId)), user, null, 200));
+        assertThat(cleared.get("wordCount").asInt()).isZero();
+        assertThat(cleared.get("groups").get(0).get("expandCount").asInt()).isZero();
     }
 
     @Test

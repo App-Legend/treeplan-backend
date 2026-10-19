@@ -28,6 +28,12 @@ public class CategoryController {
     }
 
     /** 뿌리 또는 단어를 눌러 AI로 가지 뻗기 */
+    /** 트리 초기화: 이 세션에서 이 분야에 뻗은 단어를 모두 지운다 */
+    @DeleteMapping("/sessions/{sessionId}/categories/{categoryId}/words")
+    public WordTreeService.ResetResponse reset(@PathVariable Long sessionId, @PathVariable Long categoryId) {
+        return trees.reset(sessionId, categoryId, CurrentUser.id());
+    }
+
     @PostMapping("/words/{id}/expand")
     public WordTreeService.ExpandResponse expand(@PathVariable Long id, @RequestBody WordTreeService.ExpandRequest req) {
         return trees.expand(id, CurrentUser.id(), req);

@@ -48,6 +48,21 @@ public class WordTreeService {
     public record ExpandResponse(Long parentId, Long rootId, List<CatalogService.WordDto> words,
                                  int rootWordCount, int expandCount, int remaining, String aiMode) {}
 
+    public record ResetResponse(Long categoryId, int deleted) {}
+
+    /** 트리 초기화: 이 세션에서 이 분야에 뻗은 단어를 모두 지워 뻗기 횟수도 0으로 돌린다. 팀원에게 알린다. */
+    public ResetResponse reset(Long sessionId, Long categoryId, Long userId) {
+        sessions.requireActiveMemberAndTouch(sessionId, userId);
+        catalog.requireCategory(categoryId);
+        // 단어를 만드는 중에 지우면 그 요청이 끝난 뒤 단어가 다시 생기므로 막는다
+        if (inFlight.stream().anyMatch(k -> k.startsWith(sessionId + ":"))) {
+            throw ApiException.conflict("ALREADY_EXPANDING", "단어를 만들고 있어요. 끝난 뒤 다시 초기화해 주세요.");
+        }
+        int deleted = wordNodes.deleteSessionWords(categoryId, sessionId);
+        events.publish(sessionId, SessionEventPublisher.TREE_RESET, Map.of("categoryId", categoryId, "byUserId", userId));
+        return new ResetResponse(categoryId, deleted);
+    }
+
     public CatalogService.WordTreeDto tree(Long categoryId, Long sessionId, Long userId) {
         if (sessionId != null) sessions.requireMember(sessionId, userId);
         return catalog.wordTree(categoryId, sessionId);
