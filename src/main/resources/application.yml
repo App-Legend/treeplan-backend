@@ -6,6 +6,10 @@ server:
 spring:
   application:
     name: seokkeobom-api
+  config:
+    # 프로젝트 최상위 .env(git 제외)의 GEMINI_API_KEY·DB_URL 등을 읽는다. 환경변수로 넣은 값이 있으면 그쪽이 우선한다.
+    # bootRun은 backend/ 폴더에서 실행되므로 ../.env, 최상위에서 실행하면 .env
+    import: "optional:file:../.env[.properties],optional:file:.env[.properties]"
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/seokkeobom}
     username: ${DB_USERNAME:seokkeobom}
