@@ -21,6 +21,12 @@ public class WordTreeService {
     public static final int DEFAULT_EXPAND = 3;
     public static final int MAX_EXPAND = 10;
     private static final int MAX_WORD_LENGTH = 20;
+    /** AI에게 필요한 수의 몇 배를 후보로 받아 서버가 무작위로 고른다 (AI가 매번 같은 단어로 몰리는 것 방지) */
+    private static final int CANDIDATE_FACTOR = 4;
+    private static final int MAX_CANDIDATES = 12;
+    /** 매 요청마다 2개를 무작위로 골라 프롬프트에 넣는 연상 관점 */
+    static final List<String> ANGLES = List.of("계절·날씨", "지역·장소", "전통·문화", "최신 유행", "사람·관계",
+            "기술·도구", "일상 습관", "역사", "놀이·취미", "건강", "환경·자연", "직업", "해외", "세대");
 
     private final CatalogService catalog;
     private final WordNodeRepository wordNodes;
@@ -79,8 +85,11 @@ public class WordTreeService {
             wordNodes.findByCategoryIdAndSessionIdIsNullOrderByIdAsc(category.getId())
                     .forEach(r -> taken.add(normalize(r.getText())));
 
+            List<String> angles = new ArrayList<>(ANGLES);
+            Collections.shuffle(angles);
             WordContext ctx = new WordContext(category.getSlug(), category.getName(), root.getText(),
-                    pathOf(node, sessionWords), sessionWords.stream().map(WordNode::getText).toList(), want);
+                    pathOf(node, sessionWords), sessionWords.stream().map(WordNode::getText).toList(),
+                    Math.min(MAX_CANDIDATES, want * CANDIDATE_FACTOR), angles.subList(0, 2));
             List<String> generated;
             try {
                 generated = ai.generateWords(ctx);
@@ -88,6 +97,9 @@ public class WordTreeService {
                 throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_FAILED", e.getMessage());
             }
 
+            // 후보 중에서 무작위로 고른다
+            generated = new ArrayList<>(generated);
+            Collections.shuffle(generated);
             List<WordNode> saved = new ArrayList<>();
             for (String raw : generated) {
                 if (saved.size() >= want) break;
@@ -134,7 +146,8 @@ public class WordTreeService {
 
     private static String clean(String raw) {
         if (raw == null) return "";
-        String t = raw.strip().replaceAll("^[-•\\d.)\\s]+", "").replaceAll("[\"'`]", "").strip();
+        // 목록 표시("1. ", "2) ", "- ", "• ")만 지운다. "3D 프린팅"처럼 숫자로 시작하는 단어는 그대로 둔다.
+        String t = raw.strip().replaceAll("^(\\d+[.)]\\s*|[-•]\\s*)", "").replaceAll("[\"'`]", "").strip();
         return t.length() > MAX_WORD_LENGTH ? "" : t;
     }
 

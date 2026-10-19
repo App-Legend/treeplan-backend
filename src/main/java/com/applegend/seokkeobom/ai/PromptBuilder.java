@@ -74,9 +74,12 @@ public final class PromptBuilder {
                 '%s'에서 떠올릴 수 있는 단어 %d개를 만들어라.
                 - 모두 '%s' 분야의 '%s' 하위 카테고리에 속해야 한다.
                 - 1~3어절, 12자 이내의 명사 또는 명사구.
-                - 서로 다른 방향으로 다양하게. 너무 뻔한 단어만 고르지 말고, 아이디어의 출발점이 될 만한 구체적인 단어를 섞는다.
+                - 참고할 관점(출발점일 뿐): %s. 관점에 끌려가 범위를 벗어나지 말 것.
+                - 결과는 반드시 '%s'(으)로 분류할 수 있는 구체적인 단어여야 한다. 하위 카테고리와 관계없는 감각·상황 묘사는 쓰지 않는다.
+                - 서로 다른 방향으로 다양하게. 누구나 먼저 떠올릴 대표 단어는 피하고, 아이디어의 출발점이 될 만한 구체적이고 의외인 단어를 고른다.
                 JSON 형식으로만 답하라: {"words": ["...", "..."]}
                 """.formatted(ctx.categoryName(), ctx.rootText(), ctx.parentText(), path, existing,
-                ctx.parentText(), ctx.count(), ctx.categoryName(), ctx.rootText());
+                ctx.parentText(), ctx.count(), ctx.categoryName(), ctx.rootText(), String.join(", ", ctx.angles()),
+                ctx.rootText());
     }
 }

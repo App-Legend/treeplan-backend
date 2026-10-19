@@ -4,6 +4,7 @@ import com.applegend.seokkeobom.category.Subcategories;
 import com.applegend.seokkeobom.category.TemplateItem;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,7 +61,9 @@ public class MockAiClient implements AiClient {
         Set<String> taken = new HashSet<>(ctx.existing());
         taken.addAll(ctx.path());
         List<String> words = new ArrayList<>();
-        for (String w : Subcategories.sampleWords(ctx.categorySlug(), ctx.rootText())) {
+        List<String> pool = new ArrayList<>(Subcategories.sampleWords(ctx.categorySlug(), ctx.rootText()));
+        Collections.shuffle(pool); // 예시 모드도 매번 다른 순서
+        for (String w : pool) {
             if (words.size() >= ctx.count()) break;
             if (!taken.contains(w)) words.add(w);
         }
