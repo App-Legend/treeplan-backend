@@ -52,17 +52,18 @@ class CoreFlowTest {
         JsonNode tree = json(perform(get("/categories/" + foodId + "/words").param("sessionId", String.valueOf(sessionId)), token, null, 200));
         assertThat(tree.get("groups")).hasSize(3);
         assertThat(tree.get("wordCount").asInt()).isZero();
-        assertThat(tree.get("maxWordsPerRoot").asInt()).isEqualTo(20);
+        assertThat(tree.get("maxExpandsPerRoot").asInt()).isEqualTo(20);
         // 트리가 비어 있으면 뽑기 불가
         perform(post("/sessions/" + sessionId + "/draws"), token, "{\"categoryIds\":[" + foodId + "]}", 422);
 
-        // AI 가지 뻗기: 뿌리마다 20개까지
+        // AI 가지 뻗기: 하위 카테고리(뿌리)마다 20번까지 (여기서는 한 번에 1개씩 20번)
         long rootId = tree.get("groups").get(0).get("id").asLong();
         JsonNode firstExpand = null;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 20; i++) {
             JsonNode ex = json(perform(post("/words/" + rootId + "/expand"), token,
-                    "{\"sessionId\":" + sessionId + ",\"count\":5}", 200));
-            assertThat(ex.get("words")).hasSize(5);
+                    "{\"sessionId\":" + sessionId + ",\"count\":1}", 200));
+            assertThat(ex.get("words")).hasSize(1);
+            assertThat(ex.get("expandCount").asInt()).isEqualTo(i + 1);
             if (firstExpand == null) firstExpand = ex;
         }
         JsonNode full = json(perform(post("/words/" + rootId + "/expand"), token, "{\"sessionId\":" + sessionId + "}", 409));
@@ -74,12 +75,14 @@ class CoreFlowTest {
         JsonNode deeper = json(perform(post("/words/" + childWord + "/expand"), token, "{\"sessionId\":" + sessionId + ",\"count\":2}", 200));
         assertThat(deeper.get("rootId").asLong()).isEqualTo(secondRoot);
         assertThat(deeper.get("rootWordCount").asInt()).isEqualTo(5);
+        assertThat(deeper.get("expandCount").asInt()).isEqualTo(2);
         // 다른 세션 참여자가 아니면 트리 조회 불가
         String stranger = signup("stranger@test.com", "남");
         perform(get("/categories/" + foodId + "/words").param("sessionId", String.valueOf(sessionId)), stranger, null, 403);
 
         tree = json(perform(get("/categories/" + foodId + "/words").param("sessionId", String.valueOf(sessionId)), token, null, 200));
         assertThat(tree.get("groups").get(0).get("wordCount").asInt()).isEqualTo(20);
+        assertThat(tree.get("groups").get(0).get("expandCount").asInt()).isEqualTo(20);
         assertThat(tree.get("groups").get(0).get("remaining").asInt()).isZero();
         Set<String> foodWords = new HashSet<>();
         collect(tree.get("groups"), foodWords);

@@ -13,7 +13,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 단어 트리 가지 뻗기(AI 단어 생성). 단어는 세션마다 따로 자라고, 뿌리(하위 카테고리)마다 최대 20개.
+ * 단어 트리 가지 뻗기(AI 단어 생성). 단어는 세션마다 따로 자라고, 뿌리(하위 카테고리)마다 가지 뻗기는 최대 20번.
  * AI 호출은 오래 걸릴 수 있어 트랜잭션 밖에서 하고, 같은 뿌리의 중복 요청은 메모리 잠금으로 막는다(서버 1대 기준).
  */
 @Service
@@ -46,7 +46,7 @@ public class WordTreeService {
 
     public record ExpandRequest(Long sessionId, Integer count) {}
     public record ExpandResponse(Long parentId, Long rootId, List<CatalogService.WordDto> words,
-                                 int rootWordCount, int remaining, String aiMode) {}
+                                 int rootWordCount, int expandCount, int remaining, String aiMode) {}
 
     public CatalogService.WordTreeDto tree(Long categoryId, Long sessionId, Long userId) {
         if (sessionId != null) sessions.requireMember(sessionId, userId);
@@ -71,13 +71,13 @@ public class WordTreeService {
             throw ApiException.conflict("ALREADY_EXPANDING", "'" + root.getText() + "'에서 단어를 만들고 있어요. 잠시만 기다려 주세요.");
         }
         try {
-            int used = (int) wordNodes.countByRootIdAndSessionId(root.getId(), sessionId);
-            int remaining = WordNode.MAX_WORDS_PER_ROOT - used;
-            if (remaining <= 0) {
-                throw ApiException.conflict("ROOT_FULL", "'" + root.getText() + "'에는 단어를 "
-                        + WordNode.MAX_WORDS_PER_ROOT + "개까지만 뻗을 수 있어요. 다른 하위 카테고리에서 뻗어 보세요.");
+            int expands = wordNodes.countExpands(root.getId(), sessionId);
+            if (expands >= WordNode.MAX_EXPANDS_PER_ROOT) {
+                throw ApiException.conflict("ROOT_FULL", "'" + root.getText() + "'에서는 가지를 "
+                        + WordNode.MAX_EXPANDS_PER_ROOT + "번까지만 뻗을 수 있어요. 다른 하위 카테고리에서 뻗어 보세요.");
             }
-            int want = Math.min(clamp(req.count()), remaining);
+            int expandNo = expands + 1;
+            int want = clamp(req.count());
 
             List<WordNode> sessionWords = wordNodes.findByCategoryIdAndSessionIdOrderByIdAsc(category.getId(), sessionId);
             Set<String> taken = new HashSet<>();
@@ -105,22 +105,22 @@ public class WordTreeService {
                 if (saved.size() >= want) break;
                 String text = clean(raw);
                 if (text.isEmpty() || !taken.add(normalize(text))) continue;
-                saved.add(wordNodes.save(WordNode.aiWord(node, root.getId(), sessionId, text)));
+                saved.add(wordNodes.save(WordNode.aiWord(node, root.getId(), sessionId, text, expandNo)));
             }
             if (saved.isEmpty()) {
                 throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_FAILED",
                         "새로운 단어를 만들지 못했어요. 다시 시도하거나 다른 단어에서 뻗어 보세요.");
             }
 
-            int total = used + saved.size();
+            int rootWords = (int) wordNodes.countByRootIdAndSessionId(root.getId(), sessionId);
             events.publish(sessionId, SessionEventPublisher.TREE_EXPANDED, Map.of(
                     "categoryId", category.getId(), "rootId", root.getId(), "parentId", node.getId(),
                     "words", saved.stream().map(WordNode::getText).toList(), "byUserId", userId));
             List<CatalogService.WordDto> dtos = saved.stream()
                     .map(n -> new CatalogService.WordDto(n.getId(), n.getText(), List.of()))
                     .toList();
-            return new ExpandResponse(node.getId(), root.getId(), dtos, total,
-                    WordNode.MAX_WORDS_PER_ROOT - total, ai.wordMode());
+            return new ExpandResponse(node.getId(), root.getId(), dtos, rootWords, expandNo,
+                    WordNode.MAX_EXPANDS_PER_ROOT - expandNo, ai.wordMode());
         } finally {
             inFlight.remove(lockKey);
         }

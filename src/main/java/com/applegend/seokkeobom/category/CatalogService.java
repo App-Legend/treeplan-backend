@@ -24,9 +24,9 @@ public class CatalogService {
 
     public record CategoryDto(Long id, String name, String slug) {}
     public record WordDto(Long id, String text, List<WordDto> children) {}
-    /** 뿌리(하위 카테고리). wordCount는 이 세션에서 뻗은 단어 수, remaining은 더 뻗을 수 있는 수 */
-    public record WordGroupDto(Long id, String text, int wordCount, int remaining, List<WordDto> children) {}
-    public record WordTreeDto(Long categoryId, String name, int wordCount, int maxWordsPerRoot, List<WordGroupDto> groups) {}
+    /** 뿌리(하위 카테고리). wordCount는 이 세션에서 뻗은 단어 수, expandCount는 뻗은 횟수, remaining은 더 뻗을 수 있는 횟수 */
+    public record WordGroupDto(Long id, String text, int wordCount, int expandCount, int remaining, List<WordDto> children) {}
+    public record WordTreeDto(Long categoryId, String name, int wordCount, int maxExpandsPerRoot, List<WordGroupDto> groups) {}
 
     public List<CategoryDto> listCategories() {
         return categories.findAllByOrderBySortOrderAsc().stream()
@@ -57,11 +57,13 @@ public class CatalogService {
         }
         List<WordGroupDto> groups = new ArrayList<>();
         for (WordNode root : roots) {
-            int count = (int) words.stream().filter(w -> root.getId().equals(w.getRootId())).count();
-            groups.add(new WordGroupDto(root.getId(), root.getText(), count,
-                    Math.max(0, WordNode.MAX_WORDS_PER_ROOT - count), childrenOf(root.getId(), byParent)));
+            List<WordNode> rootWords = words.stream().filter(w -> root.getId().equals(w.getRootId())).toList();
+            int expands = rootWords.stream().map(WordNode::getExpandNo).filter(Objects::nonNull)
+                    .max(Integer::compare).orElse(0);
+            groups.add(new WordGroupDto(root.getId(), root.getText(), rootWords.size(), expands,
+                    Math.max(0, WordNode.MAX_EXPANDS_PER_ROOT - expands), childrenOf(root.getId(), byParent)));
         }
-        return new WordTreeDto(category.getId(), category.getName(), words.size(), WordNode.MAX_WORDS_PER_ROOT, groups);
+        return new WordTreeDto(category.getId(), category.getName(), words.size(), WordNode.MAX_EXPANDS_PER_ROOT, groups);
     }
 
     private static List<WordDto> childrenOf(Long parentId, Map<Long, List<WordNode>> byParent) {

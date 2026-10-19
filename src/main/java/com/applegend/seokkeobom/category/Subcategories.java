@@ -9,7 +9,7 @@ import java.util.Map;
  * 하위 카테고리 이름은 팀 회의 확정 전까지 임시 값이다. 바꾸면 다음 실행 때 DataSeeder가 뿌리를 다시 맞춘다.
  *
  * 각 뿌리의 단어 목록은 GEMINI_API_KEY가 없을 때(예시 모드) AI 대신 쓰는 예시 단어다.
- * 실제 모드에서는 AI가 단어를 만들며, 뿌리마다 최대 {@link WordNode#MAX_WORDS_PER_ROOT}개까지 뻗는다.
+ * 실제 모드에서는 AI가 단어를 만들며, 뿌리마다 가지 뻗기는 최대 {@link WordNode#MAX_EXPANDS_PER_ROOT}번이다.
  */
 public final class Subcategories {
     private Subcategories() {}

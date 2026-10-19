@@ -16,6 +16,10 @@ public interface WordNodeRepository extends JpaRepository<WordNode, Long> {
 
     long countByRootIdAndSessionId(Long rootId, Long sessionId);
 
+    /** 이 세션에서 뿌리 하나에 가지를 뻗은 횟수 */
+    @Query("select coalesce(max(n.expandNo), 0) from WordNode n where n.rootId = :rootId and n.sessionId = :sessionId")
+    int countExpands(@Param("rootId") Long rootId, @Param("sessionId") Long sessionId);
+
     @Modifying
     @Query("delete from WordNode n where n.categoryId = :categoryId and n.sessionId is null")
     int deleteSharedNodes(@Param("categoryId") Long categoryId);
