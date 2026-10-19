@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Service
 public class WordTreeService {
-    public static final int DEFAULT_EXPAND = 5;
+    public static final int DEFAULT_EXPAND = 3;
     public static final int MAX_EXPAND = 10;
     private static final int MAX_WORD_LENGTH = 20;
 
