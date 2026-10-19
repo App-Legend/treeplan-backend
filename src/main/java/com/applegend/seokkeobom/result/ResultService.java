@@ -75,7 +75,17 @@ public class ResultService {
         Optional<Result> existing = results.findByIdeaId(ideaId);
         Result result;
         if (existing.isPresent() && !existing.get().isDeleted()) {
-            return toResponse(existing.get(), idea, userId, null);
+            Result current = existing.get();
+            if (current.getStatus() == GenerationStatus.SUCCESS) {
+                return toResponse(current, idea, userId, null);
+            }
+            // 실패했거나 오래 멈춘 실행안은 다시 만든다. 지금 만드는 중이면 중복 실행을 막는다.
+            Instant now = Instant.now();
+            if (results.markGenerating(current.getId(), GenerationStatus.GENERATING, now,
+                    now.minus(IdeaService.STALE_GENERATION)) == 0) {
+                throw ApiException.conflict("ALREADY_GENERATING", "실행안을 만들고 있어요. 잠시만 기다려 주세요.");
+            }
+            result = results.findById(current.getId()).orElseThrow();
         } else if (existing.isPresent()) {
             result = existing.get();
             result.revive(userId);
