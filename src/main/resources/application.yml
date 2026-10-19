@@ -39,12 +39,14 @@ app:
     gemini-model: ${GEMINI_MODEL:gemini-3.8-flash}
     # 단어 트리 가지 뻗기는 자주 호출되므로 빠른 모델 (측정: 3.5-flash-lite 약 1~2초, 3.8-flash 약 60초)
     gemini-word-model: ${GEMINI_WORD_MODEL:gemini-3.5-flash-lite}
-    # 503·404·429가 계속되면 이 모델로 한 번 더 시도한다. 비우면 대체 모델 없음.
-    gemini-fallback-model: ${GEMINI_FALLBACK_MODEL:gemini-3.5-flash}
+    # 기본 모델이 실패하면 쉼표 순서대로 대체 모델을 시도한다. 비우면 대체 모델 없음.
+    gemini-fallback-model: ${GEMINI_FALLBACK_MODEL:gemini-3.5-flash,gemini-3.1-flash-lite}
     gemini-base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
-    # 3.8-flash는 한 번에 1분 넘게 걸리는 경우가 있어 넉넉히 둔다.
-    timeout-seconds: ${AI_TIMEOUT_SECONDS:120}
-    word-timeout-seconds: ${AI_WORD_TIMEOUT_SECONDS:30}
+    # 기본 모델은 평소 10~15초. 이보다 훨씬 늦으면(혼잡) 기다리지 않고 대체 모델로 넘어간다.
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:45}
+    word-timeout-seconds: ${AI_WORD_TIMEOUT_SECONDS:20}
+    # 대체 모델(3.5-flash, 평소 약 5초)의 대기 시간
+    fallback-timeout-seconds: ${AI_FALLBACK_TIMEOUT_SECONDS:60}
   session:
     inactive-days: 30
     expiry-cron: "0 0 4 * * *"

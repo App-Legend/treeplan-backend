@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -20,7 +21,9 @@ import java.util.Map;
 /**
  * Gemini generateContent REST 호출. API 키는 서버 환경변수에만 있고 브라우저로 나가지 않는다.
  * 아이디어·결과물은 품질 우선 모델(model), 단어 트리 가지 뻗기는 응답이 빠른 모델(wordModel)을 쓴다.
- * 503(사용량 많음)·500은 잠시 뒤 다시 시도하고, 그래도 안 되거나 404·429면 대체 모델(fallbackModel)로 한 번 더 시도한다. (위험 3)
+ * 503(사용량 많음)·500·응답 형식 오류는 잠시 뒤 같은 모델로 다시 시도한다.
+ * 시간 초과·429(할당량)·404이거나 재시도도 실패하면 대체 모델들(fallbackModels)을 순서대로 시도한다. (위험 3)
+ * 기본 모델 대기 시간을 짧게 두고(평소 응답 10~15초) 늦으면 빠른 대체 모델로 넘어가, 사용자가 1분 넘게 기다리지 않게 한다.
  */
 public class GeminiAiClient implements AiClient {
     private static final Logger log = LoggerFactory.getLogger(GeminiAiClient.class);
@@ -29,19 +32,23 @@ public class GeminiAiClient implements AiClient {
 
     private final RestClient restClient;
     private final RestClient wordClient;
+    private final RestClient fallbackClient;
     private final ObjectMapper objectMapper;
     private final String model;
     private final String wordModel;
-    private final String fallbackModel;
+    /** 차례로 시도할 대체 모델들 (쉼표로 여러 개) */
+    private final List<String> fallbackModels;
 
     public GeminiAiClient(String baseUrl, String apiKey, String model, String wordModel, String fallbackModel,
-                          Duration timeout, Duration wordTimeout, ObjectMapper objectMapper) {
+                          Duration timeout, Duration wordTimeout, Duration fallbackTimeout, ObjectMapper objectMapper) {
         this.restClient = client(baseUrl, apiKey, timeout);
         this.wordClient = client(baseUrl, apiKey, wordTimeout);
+        this.fallbackClient = client(baseUrl, apiKey, fallbackTimeout);
         this.objectMapper = objectMapper;
         this.model = model;
         this.wordModel = (wordModel == null || wordModel.isBlank()) ? model : wordModel;
-        this.fallbackModel = (fallbackModel == null || fallbackModel.isBlank()) ? null : fallbackModel;
+        this.fallbackModels = fallbackModel == null ? List.of()
+                : java.util.Arrays.stream(fallbackModel.split(",")).map(String::strip).filter(s -> !s.isEmpty()).toList();
     }
 
     private static RestClient client(String baseUrl, String apiKey, Duration readTimeout) {
@@ -110,13 +117,16 @@ public class GeminiAiClient implements AiClient {
     /** 같은 모델로 재시도한 뒤, 필요하면 대체 모델로 넘어간다. */
     private JsonNode call(RestClient client, String primary, String system, String prompt, double temperature) {
         List<String> models = new ArrayList<>(List.of(primary));
-        if (fallbackModel != null && !fallbackModel.equals(primary)) models.add(fallbackModel);
+        for (String f : fallbackModels) {
+            if (!models.contains(f)) models.add(f);
+        }
         AiException last = null;
         for (int i = 0; i < models.size(); i++) {
             String m = models.get(i);
+            RestClient c = i == 0 ? client : fallbackClient;
             for (int attempt = 1; attempt <= ATTEMPTS_PER_MODEL; attempt++) {
                 try {
-                    return callOnce(client, m, system, prompt, temperature);
+                    return callOnce(c, m, system, prompt, temperature);
                 } catch (BusyException e) {
                     last = e;
                     if (!e.retrySameModel) break;
@@ -146,9 +156,9 @@ public class GeminiAiClient implements AiClient {
                     .retrieve()
                     .body(String.class);
         } catch (ResourceAccessException e) {
-            // 시간 초과는 다시 기다리면 대기 시간이 두 배가 되므로 재시도하지 않는다.
+            // 시간 초과는 같은 모델로 다시 기다리면 대기 시간이 두 배가 되므로 바로 대체 모델로 넘어간다.
             log.warn("Gemini {} timeout/network error: {}", m, e.getMessage());
-            throw new AiException("AI 응답이 늦어지고 있습니다. 같은 조합으로 다시 시도해 주세요.", e);
+            throw new BusyException("AI 응답이 늦어지고 있습니다. 같은 조합으로 다시 시도해 주세요.", false, e);
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
             log.warn("Gemini {} HTTP {}: {}", m, status, trim(e.getResponseBodyAsString(), 300));
@@ -162,6 +172,10 @@ public class GeminiAiClient implements AiClient {
                 throw new BusyException("설정된 AI 모델을 쓸 수 없습니다. 관리자에게 알려 주세요.", false, e);
             }
             throw new AiException("AI 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.", e);
+        } catch (RestClientException e) {
+            // 응답 본문을 읽는 도중 시간 초과(SocketTimeoutException) 등은 이쪽으로 온다.
+            log.warn("Gemini {} response read failed: {}", m, e.getMostSpecificCause().toString());
+            throw new BusyException("AI 응답이 늦어지고 있습니다. 같은 조합으로 다시 시도해 주세요.", false, e);
         }
         try {
             JsonNode root = objectMapper.readTree(raw);
@@ -169,14 +183,15 @@ public class GeminiAiClient implements AiClient {
             if (textNode.isMissingNode() || textNode.asText().isBlank()) {
                 String reason = root.path("candidates").path(0).path("finishReason").asText("");
                 log.warn("Gemini empty response. finishReason={} promptFeedback={}", reason, root.path("promptFeedback"));
-                throw new AiException("AI가 결과를 돌려주지 않았습니다. 다른 조합으로 시도해 보세요.");
+                throw new BusyException("AI가 결과를 돌려주지 않았습니다. 다른 조합으로 시도해 보세요.", false, null);
             }
             return objectMapper.readTree(stripFence(textNode.asText()));
         } catch (AiException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("Gemini response parse failed: {}", e.getMessage());
-            throw new AiException("AI 응답을 읽지 못했습니다. 다시 시도해 주세요.", e);
+            // AI가 JSON 형식을 어긴 경우: 같은 모델로 한 번 더 시도할 만하다
+            log.warn("Gemini {} response parse failed: {}", m, e.getMessage());
+            throw new BusyException("AI 응답을 읽지 못했습니다. 다시 시도해 주세요.", true, e);
         }
     }
 
