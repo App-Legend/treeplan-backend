@@ -74,6 +74,13 @@ public class WordNode {
 
     public boolean isRoot() { return depth == ROOT_DEPTH; }
 
+    /** 고정 단어를 남기는 초기화: 뿌리 바로 아래(상위 노드)로 올리고, 뻗기 횟수 계산에서 빠지게 한다 */
+    public void promoteUnderRoot() {
+        this.parentId = this.rootId;
+        this.depth = ROOT_DEPTH + 1;
+        this.expandNo = 0;
+    }
+
     public Long getId() { return id; }
     public Long getCategoryId() { return categoryId; }
     public Long getParentId() { return parentId; }

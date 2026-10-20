@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface WordNodeRepository extends JpaRepository<WordNode, Long> {
@@ -30,4 +31,11 @@ public interface WordNodeRepository extends JpaRepository<WordNode, Long> {
     @Modifying
     @Query("delete from WordNode n where n.categoryId = :categoryId and n.sessionId = :sessionId")
     int deleteSessionWords(@Param("categoryId") Long categoryId, @Param("sessionId") Long sessionId);
+
+    /** 고정 단어를 남기는 초기화: keepIds를 뺀 나머지 단어를 지운다 */
+    @Transactional
+    @Modifying
+    @Query("delete from WordNode n where n.categoryId = :categoryId and n.sessionId = :sessionId and n.id not in :keepIds")
+    int deleteSessionWordsExcept(@Param("categoryId") Long categoryId, @Param("sessionId") Long sessionId,
+                                 @Param("keepIds") Collection<Long> keepIds);
 }

@@ -28,10 +28,11 @@ public class CategoryController {
     }
 
     /** 뿌리 또는 단어를 눌러 AI로 가지 뻗기 */
-    /** 트리 초기화: 이 세션에서 이 분야에 뻗은 단어를 모두 지운다 */
+    /** 트리 초기화. keep에 단어를 주면(고정한 단어) 그 단어는 하위 카테고리 바로 아래로 올리고 나머지만 지운다 */
     @DeleteMapping("/sessions/{sessionId}/categories/{categoryId}/words")
-    public WordTreeService.ResetResponse reset(@PathVariable Long sessionId, @PathVariable Long categoryId) {
-        return trees.reset(sessionId, categoryId, CurrentUser.id());
+    public WordTreeService.ResetResponse reset(@PathVariable Long sessionId, @PathVariable Long categoryId,
+                                               @RequestParam(required = false) List<String> keep) {
+        return trees.reset(sessionId, categoryId, CurrentUser.id(), keep);
     }
 
     @PostMapping("/words/{id}/expand")

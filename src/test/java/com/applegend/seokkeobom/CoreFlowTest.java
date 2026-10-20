@@ -207,6 +207,20 @@ class CoreFlowTest {
         assertThat(reopened.get("saved").asBoolean()).isTrue();
         assertThat(json(perform(get("/sessions/" + sessionId), user, null, 200)).get("teamCode").isNull()).isFalse();
 
+        // 고정 단어를 남기는 초기화: 남긴 단어는 하위 카테고리 바로 아래로, 나머지는 삭제, 뻗기 횟수 0
+        JsonNode before = json(perform(get("/categories/" + catId + "/words").param("sessionId", String.valueOf(sessionId)), user, null, 200));
+        String keepWord = before.get("groups").get(0).get("children").get(0).get("text").asText();
+        JsonNode keepReset = json(perform(delete("/sessions/" + sessionId + "/categories/" + catId + "/words").param("keep", keepWord), user, null, 200));
+        assertThat(keepReset.get("kept")).hasSize(1);
+        JsonNode kept = json(perform(get("/categories/" + catId + "/words").param("sessionId", String.valueOf(sessionId)), user, null, 200));
+        assertThat(kept.get("wordCount").asInt()).isEqualTo(1);
+        assertThat(kept.get("groups").get(0).get("children").get(0).get("text").asText()).isEqualTo(keepWord);
+        assertThat(kept.get("groups").get(0).get("expandCount").asInt()).isZero();
+        // 남긴 단어에서 다시 뻗으면 1번째 뻗기로 센다
+        long keptId = kept.get("groups").get(0).get("children").get(0).get("id").asLong();
+        JsonNode reExpand = json(perform(post("/words/" + keptId + "/expand"), user, "{\"sessionId\":" + sessionId + "}", 200));
+        assertThat(reExpand.get("expandCount").asInt()).isEqualTo(1);
+
         // 트리 초기화: 뻗은 단어가 모두 지워지고 뻗기 횟수도 0
         JsonNode reset = json(perform(delete("/sessions/" + sessionId + "/categories/" + catId + "/words"), user, null, 200));
         assertThat(reset.get("deleted").asInt()).isPositive();

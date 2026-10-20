@@ -48,19 +48,37 @@ public class WordTreeService {
     public record ExpandResponse(Long parentId, Long rootId, List<CatalogService.WordDto> words,
                                  int rootWordCount, int expandCount, int remaining, String aiMode) {}
 
-    public record ResetResponse(Long categoryId, int deleted) {}
+    public record ResetResponse(Long categoryId, int deleted, List<String> kept) {}
 
     /** 트리 초기화: 이 세션에서 이 분야에 뻗은 단어를 모두 지워 뻗기 횟수도 0으로 돌린다. 팀원에게 알린다. */
-    public ResetResponse reset(Long sessionId, Long categoryId, Long userId) {
+    /**
+     * keepWords가 있으면 그 단어(고정한 단어)는 남겨 각자의 하위 카테고리 바로 아래로 올리고, 나머지만 지운다.
+     * 비어 있으면 이 분야의 단어를 모두 지운다.
+     */
+    public ResetResponse reset(Long sessionId, Long categoryId, Long userId, List<String> keepWords) {
         sessions.requireActiveMemberAndTouch(sessionId, userId);
         catalog.requireCategory(categoryId);
         // 단어를 만드는 중에 지우면 그 요청이 끝난 뒤 단어가 다시 생기므로 막는다
         if (inFlight.stream().anyMatch(k -> k.startsWith(sessionId + ":"))) {
             throw ApiException.conflict("ALREADY_EXPANDING", "단어를 만들고 있어요. 끝난 뒤 다시 초기화해 주세요.");
         }
-        int deleted = wordNodes.deleteSessionWords(categoryId, sessionId);
-        events.publish(sessionId, SessionEventPublisher.TREE_RESET, Map.of("categoryId", categoryId, "byUserId", userId));
-        return new ResetResponse(categoryId, deleted);
+        Set<String> keepTexts = new HashSet<>(keepWords == null ? List.of() : keepWords);
+        List<WordNode> kept = new ArrayList<>();
+        if (!keepTexts.isEmpty()) {
+            for (WordNode w : wordNodes.findByCategoryIdAndSessionIdOrderByIdAsc(categoryId, sessionId)) {
+                if (keepTexts.remove(w.getText())) { // 같은 글자가 여러 개면 처음 하나만
+                    w.promoteUnderRoot();
+                    kept.add(wordNodes.save(w));
+                }
+            }
+        }
+        int deleted = kept.isEmpty()
+                ? wordNodes.deleteSessionWords(categoryId, sessionId)
+                : wordNodes.deleteSessionWordsExcept(categoryId, sessionId, kept.stream().map(WordNode::getId).toList());
+        List<String> keptTexts = kept.stream().map(WordNode::getText).toList();
+        events.publish(sessionId, SessionEventPublisher.TREE_RESET,
+                Map.of("categoryId", categoryId, "byUserId", userId, "kept", keptTexts));
+        return new ResetResponse(categoryId, deleted, keptTexts);
     }
 
     public CatalogService.WordTreeDto tree(Long categoryId, Long sessionId, Long userId) {
