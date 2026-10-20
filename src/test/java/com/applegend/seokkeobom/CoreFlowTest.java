@@ -52,14 +52,14 @@ class CoreFlowTest {
         JsonNode tree = json(perform(get("/categories/" + foodId + "/words").param("sessionId", String.valueOf(sessionId)), token, null, 200));
         assertThat(tree.get("groups")).hasSize(3);
         assertThat(tree.get("wordCount").asInt()).isZero();
-        assertThat(tree.get("maxExpandsPerRoot").asInt()).isEqualTo(20);
+        assertThat(tree.get("maxExpandsPerRoot").asInt()).isEqualTo(10);
         // 트리가 비어 있으면 뽑기 불가
         perform(post("/sessions/" + sessionId + "/draws"), token, "{\"categoryIds\":[" + foodId + "]}", 422);
 
-        // AI 가지 뻗기: 하위 카테고리(뿌리)마다 20번까지 (여기서는 한 번에 1개씩 20번)
+        // AI 가지 뻗기: 하위 카테고리(뿌리)마다 10번까지 (여기서는 한 번에 1개씩 10번)
         long rootId = tree.get("groups").get(0).get("id").asLong();
         JsonNode firstExpand = null;
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 10; i++) {
             JsonNode ex = json(perform(post("/words/" + rootId + "/expand"), token,
                     "{\"sessionId\":" + sessionId + ",\"count\":1}", 200));
             assertThat(ex.get("words")).hasSize(1);
@@ -81,12 +81,12 @@ class CoreFlowTest {
         perform(get("/categories/" + foodId + "/words").param("sessionId", String.valueOf(sessionId)), stranger, null, 403);
 
         tree = json(perform(get("/categories/" + foodId + "/words").param("sessionId", String.valueOf(sessionId)), token, null, 200));
-        assertThat(tree.get("groups").get(0).get("wordCount").asInt()).isEqualTo(20);
-        assertThat(tree.get("groups").get(0).get("expandCount").asInt()).isEqualTo(20);
+        assertThat(tree.get("groups").get(0).get("wordCount").asInt()).isEqualTo(10);
+        assertThat(tree.get("groups").get(0).get("expandCount").asInt()).isEqualTo(10);
         assertThat(tree.get("groups").get(0).get("remaining").asInt()).isZero();
         Set<String> foodWords = new HashSet<>();
         collect(tree.get("groups"), foodWords);
-        assertThat(foodWords).hasSize(25).doesNotHaveDuplicates();
+        assertThat(foodWords).hasSize(15).doesNotHaveDuplicates();
 
         // 3. 단어 추출 반복: 항상 3개, 항상 음식 카테고리 단어만
         JsonNode draw = null;

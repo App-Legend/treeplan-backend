@@ -14,7 +14,7 @@ import jakarta.persistence.*;
 public class WordNode {
     public static final int ROOT_DEPTH = 1;
     /** 하위 카테고리(뿌리) 하나에서 가지를 뻗을 수 있는 최대 횟수 */
-    public static final int MAX_EXPANDS_PER_ROOT = 20;
+    public static final int MAX_EXPANDS_PER_ROOT = 10;
     public static final String SOURCE_SEED = "SEED";
     public static final String SOURCE_AI = "AI";
 
