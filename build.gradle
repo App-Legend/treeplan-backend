@@ -2,15 +2,18 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.6'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.jlleitschuh.gradle.ktlint' version '12.1.2'
+    id 'com.google.cloud.tools.jib' version '3.4.5'
 }
 
 group = 'com.applegend'
 version = '0.1.0'
 
 java {
-    // JDK 21 이상이면 빌드된다.
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    // CI 러너가 JDK 17이어도 Gradle이 JDK 21을 받아서 빌드한다 (settings.gradle의 foojay)
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 repositories {
@@ -42,4 +45,25 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// CI(deploy.yml)의 ./gradlew jib가 쓰는 설정. 이미지 주소·ECR 인증은 환경변수로 받는다.
+// PDF용 한글 폰트는 src/main/jib/ 아래 파일이 이미지의 같은 경로로 복사된다.
+jib {
+    from {
+        image = 'eclipse-temurin:21-jre'
+    }
+    to {
+        image = System.getenv('CONTAINER_IMAGE') ?: 'seokkeobom-api'
+        // 로컬 빌드처럼 환경변수가 없으면 인증을 설정하지 않는다
+        if (System.getenv('REGISTRY_USER')) {
+            auth {
+                username = System.getenv('REGISTRY_USER')
+                password = System.getenv('REGISTRY_PASSWORD')
+            }
+        }
+    }
+    container {
+        ports = ['8080']
+    }
 }

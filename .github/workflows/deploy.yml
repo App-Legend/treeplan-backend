@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 env:
   AWS_REGION: ap-southeast-2
@@ -11,13 +14,63 @@ env:
   ECR_REPOSITORY: idea-support-server2
 
 jobs:
+  test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: idea_support_test
+          MYSQL_USER: ci_user
+          MYSQL_PASSWORD: ci_password
+          MYSQL_ROOT_PASSWORD: ci_root_password
+        ports:
+          - 3306:3306
+
+    env:
+      IDEA_TEST_JDBC_URL: jdbc:mysql://127.0.0.1:3306/idea_support_test?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      IDEA_TEST_DB_USER: ci_user
+      IDEA_TEST_DB_PASSWORD: ci_password
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x ./gradlew
+
+      - name: Wait for MySQL
+        run: until mysqladmin ping -h 127.0.0.1 --silent; do sleep 2; done
+
+      - name: Check code style and run tests
+        run: ./gradlew ktlintCheck test
+
   build_and_push:
     name: Build and Push Docker Image
+    needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x ./gradlew
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -26,13 +79,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to ECR
-        run: aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-
-      # Jib 대신 기존 Dockerfile 사용: PDF 내보내기용 한글 폰트(fonts-nanum)가 이미지에 들어가야 한다
-      - name: Build and Push Image
+      - name: Build and Push Image with Jib
         env:
-          IMAGE: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+          REGISTRY_USER: AWS
+          CONTAINER_IMAGE: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
         run: |
-          docker build -t "$IMAGE:latest" -t "$IMAGE:${{ github.sha }}" .
-          docker push --all-tags "$IMAGE"
+          export REGISTRY_PASSWORD=$(aws ecr get-login-password --region $AWS_REGION)
+          ./gradlew jib -PprojectDataImageTargetEnv=prod
