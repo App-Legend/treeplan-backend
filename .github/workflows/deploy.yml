@@ -1,0 +1,38 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REGISTRY: 950177940921.dkr.ecr.ap-southeast-2.amazonaws.com
+  ECR_REPOSITORY: idea-support-server
+
+jobs:
+  build_and_push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        run: aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+      # Jib 대신 기존 Dockerfile 사용: PDF 내보내기용 한글 폰트(fonts-nanum)가 이미지에 들어가야 한다
+      - name: Build and Push Image
+        env:
+          IMAGE: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+        run: |
+          docker build -t "$IMAGE:latest" -t "$IMAGE:${{ github.sha }}" .
+          docker push --all-tags "$IMAGE"
