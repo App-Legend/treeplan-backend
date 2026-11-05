@@ -19,18 +19,22 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        image: postgres:16
         env:
-          MYSQL_DATABASE: idea_support_test
-          MYSQL_USER: ci_user
-          MYSQL_PASSWORD: ci_password
-          MYSQL_ROOT_PASSWORD: ci_root_password
+          POSTGRES_DB: idea_support_test
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
         ports:
-          - 3306:3306
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
-      IDEA_TEST_JDBC_URL: jdbc:mysql://127.0.0.1:3306/idea_support_test?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      IDEA_TEST_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/idea_support_test
       IDEA_TEST_DB_USER: ci_user
       IDEA_TEST_DB_PASSWORD: ci_password
 
@@ -46,9 +50,6 @@ jobs:
 
       - name: Grant execute permission for Gradlew
         run: chmod +x ./gradlew
-
-      - name: Wait for MySQL
-        run: until mysqladmin ping -h 127.0.0.1 --silent; do sleep 2; done
 
       - name: Check code style and run tests
         run: ./gradlew ktlintCheck test
