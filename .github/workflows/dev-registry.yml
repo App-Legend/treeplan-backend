@@ -1,0 +1,103 @@
+name: Dev Registry
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-registry-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Dev Lint and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # 이 프로젝트는 PostgreSQL 드라이버만 있다 (deploy.yml과 같은 설정)
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: idea_support_test
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IDEA_TEST_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/idea_support_test
+      IDEA_TEST_DB_USER: ci_user
+      IDEA_TEST_DB_PASSWORD: ci_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - run: chmod +x ./gradlew
+      - run: ./gradlew ktlintCheck test --console=plain
+
+  publish:
+    name: Push dev image to Registry
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    env:
+      REGISTRY_HOST: ${{ vars.DEV_REGISTRY_HOST || 'docker.minq.live' }}
+      # No team number is the instructor example; students set team1 through team8.
+      REGISTRY_NAMESPACE: ${{ vars.DEV_REGISTRY_NAMESPACE || 'team2' }}
+      REGISTRY_USER: ${{ secrets.DEV_REGISTRY_USER }}
+      REGISTRY_PASSWORD: ${{ secrets.DEV_REGISTRY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Validate destination
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REGISTRY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]+)?$ ]]
+          [[ "$REGISTRY_NAMESPACE" =~ ^team([1-8])?$ ]]
+          test -n "$REGISTRY_USER"
+          test -n "$REGISTRY_PASSWORD"
+          echo "CONTAINER_IMAGE=${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/idea-support-server:dev-${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - run: chmod +x ./gradlew
+      - name: Build and push dev image
+        run: ./gradlew jib -PprojectDataImageTargetEnv=dev -Djib.to.tags=latest --console=plain
+      - name: Show image location
+        shell: bash
+        run: |
+          printf '### Dev image\n\nLatest: `%s/%s/idea-support-server:latest`\n\nCommit: `%s`\n' "$REGISTRY_HOST" "$REGISTRY_NAMESPACE" "$CONTAINER_IMAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy team app and check health
+        env:
+          DEPLOY_URL: ${{ vars.DEV_DEPLOY_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEV_DEPLOY_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_URL" == "https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE" ]]
+          test -n "$DEPLOY_TOKEN"
+          jq -n --arg image "$CONTAINER_IMAGE" --arg revision "$GITHUB_SHA" '{image:$image,revision:$revision}' > request.json
+          curl --silent --show-error --fail-with-body --max-time 1800 \
+            --header "Authorization: Bearer $DEPLOY_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @request.json "$DEPLOY_URL" > deployment-result.json
+          jq -e '.status == "deployed" or .status == "unchanged"' deployment-result.json
+          prefix="$REGISTRY_NAMESPACE"
+          if [[ "$prefix" == team ]]; then prefix=example; fi
+          curl --silent --show-error --fail "https://daelim.minq.live/$prefix/common/health" | jq -e '.status == "ok" and .database == "up"'
+          printf '\n### Lightsail deployment\n\nHealth: https://daelim.minq.live/%s/common/health\n\n' "$prefix" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"Result: " + .status + "\n\nDigest: `" + .image + "`"' deployment-result.json >> "$GITHUB_STEP_SUMMARY"
