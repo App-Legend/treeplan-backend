@@ -7,8 +7,8 @@ spring:
   application:
     name: seokkeobom-api
   config:
-    # 프로젝트 최상위 .env(git 제외)의 GEMINI_API_KEY·DB_URL 등을 읽는다. 환경변수로 넣은 값이 있으면 그쪽이 우선한다.
-    # bootRun은 backend/ 폴더에서 실행되므로 ../.env, 최상위에서 실행하면 .env
+    # 레포 최상위 .env(git 제외)의 GEMINI_API_KEY·DB_URL 등을 읽는다. 환경변수로 넣은 값이 있으면 그쪽이 우선한다.
+    # 백엔드가 별도 레포로 분리되어 bootRun은 레포 최상위에서 실행되므로 .env를 읽는다. ../.env는 상위 폴더에 둔 경우용
     import: "optional:file:../.env[.properties],optional:file:.env[.properties]"
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/seokkeobom}
