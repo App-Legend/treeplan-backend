@@ -1,5 +1,5 @@
 # team2 (TreePlan) EKS 배포 명세. ArgoCD 앱 classroom-team2 가 이 폴더를 읽어 자동 배포한다.
-# 이미지: main 에 머지하면 deploy.yml 이 ECR idea-support-server2:latest 로 올리고, ArgoCD Image Updater 가 새 이미지로 바꾼다.
+# 이미지: main 에 머지하면 deploy.yml 이 ECR idea-support-server2:latest 로 올린다. Image Updater 는 없으니 ArgoCD 에서 Deployment 를 Restart 하면 새 이미지로 바뀐다.
 # DB: 같은 폴더의 postgres.yaml 로 띄우는 team2 전용 PostgreSQL 에 DB_URL 로 붙는다.
 #     계정은 team namespace 의 mysql-auth 시크릿을 같이 쓴다 (postgres.yaml 이 같은 값으로 초기화). spring-auth 시크릿도 team 에만 있어 team namespace 에 배포한다.
 apiVersion: apps/v1
@@ -28,7 +28,8 @@ spec:
       containers:
         - name: spring
           image: 950177940921.dkr.ecr.ap-southeast-2.amazonaws.com/idea-support-server2:latest
-          imagePullPolicy: IfNotPresent
+          # Image Updater 가 없어서, Deployment 를 재시작하면 ECR latest 를 새로 받도록 Always
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080

@@ -1,0 +1,8 @@
+# 교수님 예시(MinQDU014/idea-support-server deploy/classroom-eks/apps/team)와 같은 구성.
+# ArgoCD 앱 classroom-team2 가 이 폴더를 kustomize 로 읽는다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: team
+resources:
+  - postgres.yaml
+  - treeplan.yaml
