@@ -4,3 +4,5 @@ build/
 .idea/
 *.iml
 .DS_Store
+# dev 배포 때 CI 가 프론트 빌드 결과를 넣는 곳 (커밋하지 않는다)
+src/main/resources/static/

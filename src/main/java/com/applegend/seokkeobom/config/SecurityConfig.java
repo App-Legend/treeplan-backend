@@ -38,6 +38,8 @@ public class SecurityConfig {
                 .requestMatchers("/auth/**", "/ws/**", "/actuator/health", "/error", "/common/health", "/common/deploy-demo").permitAll()
                 // 카테고리·뿌리 목록은 로그인 없이 볼 수 있다 (세션 트리는 컨트롤러에서 참여자 확인)
                 .requestMatchers(HttpMethod.GET, "/categories", "/categories/*/words").permitAll()
+                // 이미지에 함께 넣은 프론트 화면 파일 (FrontendPathConfig 가 서버 루트에서 이리로 넘긴다)
+                .requestMatchers(HttpMethod.GET, "/index.html", "/assets/**", "/fonts/**").permitAll()
                 .anyRequest().authenticated())
             .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                 res.setStatus(401);

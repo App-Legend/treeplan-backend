@@ -86,6 +86,32 @@ jobs:
           test -n "$REGISTRY_USER"
           test -n "$REGISTRY_PASSWORD"
           echo "CONTAINER_IMAGE=${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/idea-support-server:dev-${GITHUB_SHA}" >> "$GITHUB_ENV"
+      # 프론트(treeplan-frontend main)를 빌드해 백엔드 이미지의 static/ 에 넣는다.
+      # dev 서버는 팀마다 컨테이너 1개라서, https://daelim.minq.live/<팀>/ 에서 화면과 /api 를 함께 내준다.
+      - name: Check out frontend
+        uses: actions/checkout@v4
+        with:
+          repository: App-Legend/treeplan-frontend
+          ref: main
+          path: frontend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend into static resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+          rm -rf src/main/resources/static
+          mkdir -p src/main/resources/static
+          # 소스맵(.map)은 이미지에 넣지 않는다
+          (cd frontend/dist && find . -type f ! -name '*.map' -exec cp --parents {} ../../src/main/resources/static/ \;)
+          echo "프론트 커밋: $(git -C frontend rev-parse --short HEAD)"
+          ls -R src/main/resources/static | head -20
+          printf '### Frontend\n\nCommit: `%s` (treeplan-frontend main)\n\n' "$(git -C frontend rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - run: chmod +x ./gradlew
       - name: Build and push dev image
         run: ./gradlew jib -PprojectDataImageTargetEnv=dev -Djib.to.tags=latest --console=plain
@@ -110,7 +136,8 @@ jobs:
           if [[ "$prefix" == team ]]; then prefix=example; fi
           # 우리 앱은 모든 주소가 /api 아래에 있어서 헬스체크도 /api/common/health 다
           health_url="https://daelim.minq.live/$prefix/api/common/health"
-          summary "### Lightsail deployment" "" "- Image: \`$CONTAINER_IMAGE\`" "- Health: [$health_url]($health_url)"
+          web_url="https://daelim.minq.live/$prefix/"
+          summary "### Lightsail deployment" "" "- Image: \`$CONTAINER_IMAGE\`" "- Web: [$web_url]($web_url)" "- Health: [$health_url]($health_url)"
 
           if [[ "$DEPLOY_URL" != "https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE" ]]; then
             log "::error::DEV_DEPLOY_URL 이 https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE 가 아니다: $DEPLOY_URL"
