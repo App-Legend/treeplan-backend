@@ -39,6 +39,8 @@ dependencies {
     implementation 'com.github.librepdf:openpdf:1.3.43'
 
     runtimeOnly 'org.postgresql:postgresql'
+    // EKS 운영 DB 는 MySQL 8 이다 (버전은 Spring Boot 가 맞춰 준다)
+    runtimeOnly 'com.mysql:mysql-connector-j'
     testRuntimeOnly 'com.h2database:h2'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
