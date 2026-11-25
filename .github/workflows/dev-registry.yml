@@ -108,8 +108,9 @@ jobs:
 
           prefix="$REGISTRY_NAMESPACE"
           if [[ "$prefix" == team ]]; then prefix=example; fi
-          health_url="https://daelim.minq.live/$prefix/common/health"
-          summary "### Lightsail deployment" "" "- Image: \`$CONTAINER_IMAGE\`" "- Health: $health_url"
+          # 우리 앱은 모든 주소가 /api 아래에 있어서 헬스체크도 /api/common/health 다
+          health_url="https://daelim.minq.live/$prefix/api/common/health"
+          summary "### Lightsail deployment" "" "- Image: \`$CONTAINER_IMAGE\`" "- Health: [$health_url]($health_url)"
 
           if [[ "$DEPLOY_URL" != "https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE" ]]; then
             log "::error::DEV_DEPLOY_URL 이 https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE 가 아니다: $DEPLOY_URL"
@@ -160,7 +161,7 @@ jobs:
             exit 1
           fi
           if [[ "$health_ok" != true ]]; then
-            log "::error::헬스체크 실패 (HTTP $health_code). /common/health 가 status=ok, database=up 을 돌려줘야 한다."
+            log "::error::헬스체크 실패 (HTTP $health_code). $health_url 이 status=ok, database=up 을 돌려줘야 한다."
             exit 1
           fi
           jq -r '"- Result: " + .status + "\n- Digest: `" + (.image // "") + "`"' deployment-result.json >> "$GITHUB_STEP_SUMMARY"
