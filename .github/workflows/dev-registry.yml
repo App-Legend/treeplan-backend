@@ -45,6 +45,18 @@ jobs:
           distribution: temurin
       - run: chmod +x ./gradlew
       - run: ./gradlew ktlintCheck test --console=plain
+      # 성공·실패와 상관없이 테스트·ktlint 결과를 Actions 실행 화면의 Artifacts 에 남긴다
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-test-reports
+          path: |
+            build/reports/tests/test/
+            build/test-results/test/
+            build/reports/ktlint/
+          if-no-files-found: ignore
+          retention-days: 14
 
   publish:
     name: Push dev image to Registry
@@ -86,18 +98,78 @@ jobs:
           DEPLOY_URL: ${{ vars.DEV_DEPLOY_URL }}
           DEPLOY_TOKEN: ${{ secrets.DEV_DEPLOY_TOKEN }}
         shell: bash
+        # 실패해도 서버 응답이 남도록 응답 본문·HTTP 코드를 로그, 실행 요약, deploy-logs 아티팩트에 남긴다 (토큰은 남기지 않는다)
         run: |
-          set -euo pipefail
-          [[ "$DEPLOY_URL" == "https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE" ]]
-          test -n "$DEPLOY_TOKEN"
-          jq -n --arg image "$CONTAINER_IMAGE" --arg revision "$GITHUB_SHA" '{image:$image,revision:$revision}' > request.json
-          curl --silent --show-error --fail-with-body --max-time 1800 \
-            --header "Authorization: Bearer $DEPLOY_TOKEN" \
-            --header 'Content-Type: application/json' \
-            --data-binary @request.json "$DEPLOY_URL" > deployment-result.json
-          jq -e '.status == "deployed" or .status == "unchanged"' deployment-result.json
+          set -uo pipefail
+          mkdir -p deploy-logs
+          log() { echo "$*" | tee -a deploy-logs/deploy.log; }
+          summary() { printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; }
+          body() { head -c 4000 "$1" 2>/dev/null; }
+
           prefix="$REGISTRY_NAMESPACE"
           if [[ "$prefix" == team ]]; then prefix=example; fi
-          curl --silent --show-error --fail "https://daelim.minq.live/$prefix/common/health" | jq -e '.status == "ok" and .database == "up"'
-          printf '\n### Lightsail deployment\n\nHealth: https://daelim.minq.live/%s/common/health\n\n' "$prefix" >> "$GITHUB_STEP_SUMMARY"
-          jq -r '"Result: " + .status + "\n\nDigest: `" + .image + "`"' deployment-result.json >> "$GITHUB_STEP_SUMMARY"
+          health_url="https://daelim.minq.live/$prefix/common/health"
+          summary "### Lightsail deployment" "" "- Image: \`$CONTAINER_IMAGE\`" "- Health: $health_url"
+
+          if [[ "$DEPLOY_URL" != "https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE" ]]; then
+            log "::error::DEV_DEPLOY_URL 이 https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE 가 아니다: $DEPLOY_URL"
+            exit 1
+          fi
+          if [[ -z "$DEPLOY_TOKEN" ]]; then
+            log "::error::DEV_DEPLOY_TOKEN 이 비어 있다"
+            exit 1
+          fi
+
+          jq -n --arg image "$CONTAINER_IMAGE" --arg revision "$GITHUB_SHA" '{image:$image,revision:$revision}' > request.json
+          cp request.json deploy-logs/request.json
+          log "[$(date -u +%FT%TZ)] 배포 요청 → $DEPLOY_URL"
+          deploy_code=$(curl --silent --show-error --max-time 1800 \
+            --header "Authorization: Bearer $DEPLOY_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @request.json \
+            --output deployment-result.json --write-out '%{http_code}' \
+            "$DEPLOY_URL" 2>deploy-logs/deploy-curl.err)
+          deploy_exit=$?
+          cp deployment-result.json deploy-logs/deploy-response.json 2>/dev/null || true
+          log "[$(date -u +%FT%TZ)] 배포 응답: HTTP $deploy_code (curl exit $deploy_exit)"
+          log "$(body deployment-result.json)"
+          [[ -s deploy-logs/deploy-curl.err ]] && log "curl 오류: $(cat deploy-logs/deploy-curl.err)"
+          summary "" "#### 배포 요청" "- HTTP: \`$deploy_code\` (curl exit $deploy_exit)" "" '```json' "$(body deployment-result.json)" '```'
+
+          deploy_ok=false
+          if [[ $deploy_exit -eq 0 && "$deploy_code" == 2* ]] && jq -e '.status == "deployed" or .status == "unchanged"' deployment-result.json >/dev/null 2>&1; then
+            deploy_ok=true
+          fi
+
+          # 배포 성공 여부와 상관없이 헬스체크 결과도 남긴다 (실패 원인 파악용)
+          health_code=$(curl --silent --show-error --max-time 30 \
+            --output deploy-logs/health.json --write-out '%{http_code}' \
+            "$health_url" 2>deploy-logs/health-curl.err)
+          health_exit=$?
+          log "[$(date -u +%FT%TZ)] 헬스체크: HTTP $health_code (curl exit $health_exit)"
+          log "$(body deploy-logs/health.json)"
+          summary "" "#### 헬스체크" "- HTTP: \`$health_code\` (curl exit $health_exit)" "" '```json' "$(body deploy-logs/health.json)" '```'
+
+          health_ok=false
+          if [[ $health_exit -eq 0 && "$health_code" == 200 ]] && jq -e '.status == "ok" and .database == "up"' deploy-logs/health.json >/dev/null 2>&1; then
+            health_ok=true
+          fi
+
+          if [[ "$deploy_ok" != true ]]; then
+            log "::error::배포 실패 (HTTP $deploy_code). 위 응답 본문과 deploy-logs 아티팩트를 확인하세요."
+            exit 1
+          fi
+          if [[ "$health_ok" != true ]]; then
+            log "::error::헬스체크 실패 (HTTP $health_code). /common/health 가 status=ok, database=up 을 돌려줘야 한다."
+            exit 1
+          fi
+          jq -r '"- Result: " + .status + "\n- Digest: `" + (.image // "") + "`"' deployment-result.json >> "$GITHUB_STEP_SUMMARY"
+          log "배포 완료"
+      - name: Upload deploy logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-deploy-logs
+          path: deploy-logs/
+          if-no-files-found: ignore
+          retention-days: 14

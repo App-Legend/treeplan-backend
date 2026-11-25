@@ -54,6 +54,19 @@ jobs:
       - name: Check code style and run tests
         run: ./gradlew ktlintCheck test
 
+      # 성공·실패와 상관없이 테스트·ktlint 결과를 Actions 실행 화면의 Artifacts 에 남긴다
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/test/
+            build/test-results/test/
+            build/reports/ktlint/
+          if-no-files-found: ignore
+          retention-days: 14
+
   build_and_push:
     name: Build and Push Docker Image
     needs: test
