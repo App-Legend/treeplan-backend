@@ -20,6 +20,9 @@ repositories {
     mavenCentral()
 }
 
+// Spring Boot 기본 Testcontainers(1.21.3)는 Docker Engine 29(최소 API 1.44)에 붙지 못해 1.21.4 로 올린다
+ext['testcontainers.version'] = '1.21.4'
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -40,11 +43,27 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    // Large 테스트: 운영과 같은 MySQL 8 을 Docker 로 띄운다 (버전은 Spring Boot 가 맞춰 준다)
+    testImplementation 'org.testcontainers:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// 테스트 크기별 실행: ./gradlew testSmall / testMedium / testLarge (기본 test 는 전부 실행한다)
+// small = 스프링·DB 없음, medium = 스프링 + 테스트 DB(한 프로세스), large = 실제 포트 + Docker MySQL
+['small', 'medium', 'large'].each { size ->
+    tasks.register("test${size.capitalize()}", Test) {
+        description = "@Tag(\"${size}\") 테스트만 실행한다"
+        group = 'verification'
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform {
+            includeTags size
+        }
+    }
 }
 
 // CI(deploy.yml)의 ./gradlew jib가 쓰는 설정. 이미지 주소·ECR 인증은 환경변수로 받는다.
