@@ -1,0 +1,176 @@
+name: Dev Registry
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-registry-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Dev Lint and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # 이 프로젝트는 PostgreSQL 드라이버만 있다 (deploy.yml과 같은 설정)
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: idea_support_test
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IDEA_TEST_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/idea_support_test
+      IDEA_TEST_DB_USER: ci_user
+      IDEA_TEST_DB_PASSWORD: ci_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - run: chmod +x ./gradlew
+      - run: ./gradlew ktlintCheck test --console=plain
+      # 성공·실패와 상관없이 테스트·ktlint 결과를 Actions 실행 화면의 Artifacts 에 남긴다
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-test-reports
+          path: |
+            build/reports/tests/test/
+            build/test-results/test/
+            build/reports/ktlint/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    name: Push dev image to Registry
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    env:
+      REGISTRY_HOST: ${{ vars.DEV_REGISTRY_HOST || 'docker.minq.live' }}
+      # No team number is the instructor example; students set team1 through team8.
+      REGISTRY_NAMESPACE: ${{ vars.DEV_REGISTRY_NAMESPACE || 'team2' }}
+      REGISTRY_USER: ${{ secrets.DEV_REGISTRY_USER }}
+      REGISTRY_PASSWORD: ${{ secrets.DEV_REGISTRY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Validate destination
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REGISTRY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]+)?$ ]]
+          [[ "$REGISTRY_NAMESPACE" =~ ^team([1-8])?$ ]]
+          test -n "$REGISTRY_USER"
+          test -n "$REGISTRY_PASSWORD"
+          echo "CONTAINER_IMAGE=${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/idea-support-server:dev-${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - run: chmod +x ./gradlew
+      - name: Build and push dev image
+        run: ./gradlew jib -PprojectDataImageTargetEnv=dev -Djib.to.tags=latest --console=plain
+      - name: Show image location
+        shell: bash
+        run: |
+          printf '### Dev image\n\nLatest: `%s/%s/idea-support-server:latest`\n\nCommit: `%s`\n' "$REGISTRY_HOST" "$REGISTRY_NAMESPACE" "$CONTAINER_IMAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy team app and check health
+        env:
+          DEPLOY_URL: ${{ vars.DEV_DEPLOY_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEV_DEPLOY_TOKEN }}
+        shell: bash
+        # 실패해도 서버 응답이 남도록 응답 본문·HTTP 코드를 로그, 실행 요약, deploy-logs 아티팩트에 남긴다 (토큰은 남기지 않는다)
+        run: |
+          set -uo pipefail
+          mkdir -p deploy-logs
+          log() { echo "$*" | tee -a deploy-logs/deploy.log; }
+          summary() { printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; }
+          body() { head -c 4000 "$1" 2>/dev/null; }
+
+          prefix="$REGISTRY_NAMESPACE"
+          if [[ "$prefix" == team ]]; then prefix=example; fi
+          # 우리 앱은 모든 주소가 /api 아래에 있어서 헬스체크도 /api/common/health 다
+          health_url="https://daelim.minq.live/$prefix/api/common/health"
+          summary "### Lightsail deployment" "" "- Image: \`$CONTAINER_IMAGE\`" "- Health: [$health_url]($health_url)"
+
+          if [[ "$DEPLOY_URL" != "https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE" ]]; then
+            log "::error::DEV_DEPLOY_URL 이 https://daelim.minq.live/_cd/$REGISTRY_NAMESPACE 가 아니다: $DEPLOY_URL"
+            exit 1
+          fi
+          if [[ -z "$DEPLOY_TOKEN" ]]; then
+            log "::error::DEV_DEPLOY_TOKEN 이 비어 있다"
+            exit 1
+          fi
+
+          jq -n --arg image "$CONTAINER_IMAGE" --arg revision "$GITHUB_SHA" '{image:$image,revision:$revision}' > request.json
+          cp request.json deploy-logs/request.json
+          log "[$(date -u +%FT%TZ)] 배포 요청 → $DEPLOY_URL"
+          deploy_code=$(curl --silent --show-error --max-time 1800 \
+            --header "Authorization: Bearer $DEPLOY_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data-binary @request.json \
+            --output deployment-result.json --write-out '%{http_code}' \
+            "$DEPLOY_URL" 2>deploy-logs/deploy-curl.err)
+          deploy_exit=$?
+          cp deployment-result.json deploy-logs/deploy-response.json 2>/dev/null || true
+          log "[$(date -u +%FT%TZ)] 배포 응답: HTTP $deploy_code (curl exit $deploy_exit)"
+          log "$(body deployment-result.json)"
+          [[ -s deploy-logs/deploy-curl.err ]] && log "curl 오류: $(cat deploy-logs/deploy-curl.err)"
+          summary "" "#### 배포 요청" "- HTTP: \`$deploy_code\` (curl exit $deploy_exit)" "" '```json' "$(body deployment-result.json)" '```'
+
+          deploy_ok=false
+          if [[ $deploy_exit -eq 0 && "$deploy_code" == 2* ]] && jq -e '.status == "deployed" or .status == "unchanged"' deployment-result.json >/dev/null 2>&1; then
+            deploy_ok=true
+          fi
+
+          # 배포 성공 여부와 상관없이 헬스체크 결과도 남긴다 (실패 원인 파악용)
+          health_code=$(curl --silent --show-error --max-time 30 \
+            --output deploy-logs/health.json --write-out '%{http_code}' \
+            "$health_url" 2>deploy-logs/health-curl.err)
+          health_exit=$?
+          log "[$(date -u +%FT%TZ)] 헬스체크: HTTP $health_code (curl exit $health_exit)"
+          log "$(body deploy-logs/health.json)"
+          summary "" "#### 헬스체크" "- HTTP: \`$health_code\` (curl exit $health_exit)" "" '```json' "$(body deploy-logs/health.json)" '```'
+
+          health_ok=false
+          if [[ $health_exit -eq 0 && "$health_code" == 200 ]] && jq -e '.status == "ok" and .database == "up"' deploy-logs/health.json >/dev/null 2>&1; then
+            health_ok=true
+          fi
+
+          if [[ "$deploy_ok" != true ]]; then
+            log "::error::배포 실패 (HTTP $deploy_code). 위 응답 본문과 deploy-logs 아티팩트를 확인하세요."
+            exit 1
+          fi
+          if [[ "$health_ok" != true ]]; then
+            log "::error::헬스체크 실패 (HTTP $health_code). $health_url 이 status=ok, database=up 을 돌려줘야 한다."
+            exit 1
+          fi
+          jq -r '"- Result: " + .status + "\n- Digest: `" + (.image // "") + "`"' deployment-result.json >> "$GITHUB_STEP_SUMMARY"
+          log "배포 완료"
+      - name: Upload deploy logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-deploy-logs
+          path: deploy-logs/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -35,7 +35,7 @@ public class SecurityConfig {
             .formLogin(f -> f.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/auth/**", "/ws/**", "/actuator/health", "/error").permitAll()
+                .requestMatchers("/auth/**", "/ws/**", "/actuator/health", "/error", "/common/health", "/common/deploy-demo").permitAll()
                 // 카테고리·뿌리 목록은 로그인 없이 볼 수 있다 (세션 트리는 컨트롤러에서 참여자 확인)
                 .requestMatchers(HttpMethod.GET, "/categories", "/categories/*/words").permitAll()
                 .anyRequest().authenticated())
