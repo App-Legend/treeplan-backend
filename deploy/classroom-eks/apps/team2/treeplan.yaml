@@ -1,0 +1,91 @@
+# team2 (TreePlan) EKS 배포 명세. ArgoCD 앱 classroom-team2 가 이 폴더를 읽어 자동 배포한다.
+# 이미지: main 에 머지하면 deploy.yml 이 ECR idea-support-server2:latest 로 올리고, ArgoCD Image Updater 가 새 이미지로 바꾼다.
+# DB: 교수님 예시(team/spring)와 같은 공용 MySQL 을 DB_HOST 로 받는다. mysql-auth·spring-auth 시크릿이 있는 team namespace 에 배포해야 한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: treeplan-team2
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 300
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: treeplan-team2
+  template:
+    metadata:
+      labels:
+        app: treeplan-team2
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: spring
+          image: 950177940921.dkr.ecr.ap-southeast-2.amazonaws.com/idea-support-server2:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: DB_HOST
+              value: jdbc:mysql://mysql.team.svc.cluster.local:3306/idea_support?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-auth
+                  key: MYSQL_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-auth
+                  key: MYSQL_PASSWORD
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "3"
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:MaxRAMPercentage=70.0 -Dfile.encoding=UTF-8
+            # GEMINI_API_KEY 를 넣지 않으면 AI 는 예시(mock) 모드로 돈다
+          envFrom:
+            - secretRef:
+                name: spring-auth
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # 앱은 /api 아래에서 돌지만 /common/health 도 루트에서 받는다 (RootHealthPathConfig)
+          startupProbe:
+            httpGet:
+              path: /common/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /common/health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: treeplan-team2
+spec:
+  selector:
+    app: treeplan-team2
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
