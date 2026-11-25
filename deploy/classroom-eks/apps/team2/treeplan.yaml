@@ -1,6 +1,8 @@
 # team2 (TreePlan) EKS 배포 명세. ArgoCD 앱 classroom-team2 가 이 폴더를 읽어 자동 배포한다.
 # 이미지: main 에 머지하면 deploy.yml 이 ECR idea-support-server2:latest 로 올리고, ArgoCD Image Updater 가 새 이미지로 바꾼다.
-# DB: 교수님 예시(team/spring)와 같은 공용 MySQL 을 DB_HOST 로 받는다. mysql-auth·spring-auth 시크릿이 있는 team namespace 에 배포해야 한다.
+# DB: 교수님 예시(team/spring)와 같은 공용 MySQL 서버를 DB_HOST 로 받는다. mysql-auth·spring-auth 시크릿이 있는 team namespace 에 배포해야 한다.
+#     예시 앱·다른 팀이 쓰는 idea_support 데이터베이스와 테이블(users 등)이 섞이지 않도록 team2 전용 데이터베이스 idea_team2 를 쓴다.
+#     계정에 데이터베이스를 만들 권한이 없으면 앱이 시작하지 못할 뿐, 다른 팀 데이터는 건드리지 않는다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,7 +37,7 @@ spec:
             - name: SPRING_PROFILES_ACTIVE
               value: prod
             - name: DB_HOST
-              value: jdbc:mysql://mysql.team.svc.cluster.local:3306/idea_support?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+              value: jdbc:mysql://mysql.team.svc.cluster.local:3306/idea_team2?createDatabaseIfNotExist=true&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
             - name: DB_USERNAME
               valueFrom:
                 secretKeyRef:
